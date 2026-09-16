@@ -5,38 +5,29 @@
     <creationDate>2026</creationDate>
     <copyright>TelEtCom</copyright>
     <version>1.0.0</version>
-    <description>
-            Plugin de paiement Encaisse pour HikaShop
-    </description>
+    <description>Plugin de paiement Encaisse pour HikaShop</description>
+
     <files>
         <filename plugin="encaisse">encaisse.php</filename>
         <folder>helpers</folder>
         <folder>assets</folder>
         <folder>language</folder>
     </files>
+
     <languages>
         <language tag="en-GB">language/en-GB/en-GB.plg_hikashoppayment_encaisse.ini</language>
         <language tag="fr-FR">language/fr-FR/fr-FR.plg_hikashoppayment_encaisse.ini</language>
     </languages>
-    <media destination="plg_hikashoppayment_encaisse" folder="assets">
-        <folder>css</folder>
-        <folder>js</folder>
-        <folder>img</folder>
-    </media>
     <config>
         <fields name="params">
             <fieldset name="basic" label="Configuration Encaisse">
-                <field name="simulation" type="list" label="Mode simulation" default="1">
-                    <option value="1">Oui</option>
-                    <option value="0">Non</option>
-                </field>
-                <field name="sandbox" type="list" label="Mode Sandbox" default="1">
-                    <option value="1">Sandbox</option>
-                    <option value="0">Production</option>
-                </field>
-                <field name="client_id" type="text" label="Client ID"/>
-                <field name="client_secret" type="password" label="Client Secret"/>
-                <field name="company_id" type="text" label="Company ID" />
+
+                <field name="client_id" type="text" label="Client ID" required="true" />
+
+                <field name="client_secret" type="password" label="Client Secret" required="true" />
+
+                <field name="company_id" type="text" label="Company ID" required="true" />
+
             </fieldset>
         </fields>
     </config>

@@ -5,7 +5,6 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Registry\Registry;
-use Joomla\CMS\Router\Route;
 
 class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
 {
@@ -15,15 +14,9 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
     public $multiple = true;
     private $baseUrl = 'https://api.sandbox.encaisse.net';
 
-    public function __construct(&$subject, $config)
-    {
-        parent::__construct($subject, $config);
-        $this->plugin_name = 'encaisse';
-    }
-
     /**
      * AFFICHAGE DANS CHECKOUT
-     */  
+     */
     public function onPaymentDisplay(&$order, &$methods, &$usable_methods)
     {
         // Récupération du document Joomla
@@ -62,19 +55,19 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
             ];
             // Variable qui recevra la liste des partenaires
             $partners = [];
-                // Génération du token Encaisse
-                $auth = $this->getEncaisseToken(
-                    $this->params->get('client_id'),
-                    $this->params->get('client_secret')
+            // Génération du token Encaisse
+            $auth = $this->getEncaisseToken(
+                $this->params->get('client_id'),
+                $this->params->get('client_secret')
+            );
+            // Si le token existe
+            if (!empty($auth['connect_token'])) {
+                // Appel API partenaires
+                $partners = $this->getPaymentPartners(
+                    $auth['connect_token']
                 );
-                // Si le token existe
-                if (!empty($auth['connect_token'])) {
-                    // Appel API partenaires
-                    $partners = $this->getPaymentPartners(
-                        $auth['connect_token']
-                    );
-                }
-           
+            }
+
             /* CLASSEMENT DES PARTENAIRES */
             if (is_array($partners)) {
                 foreach ($partners as $partner) {
@@ -191,8 +184,8 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
         // Cette information sera sauvegardée avec la commande et pourra être récupérée plus tard.
         $order->payment_params->encaisse_partner = $partner;
     }
-	
-	/**
+
+    /**
      * AUTH TOKEN
      */
     private function getEncaisseToken($client_id, $client_secret)
@@ -234,24 +227,30 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
         return json_decode($response, true);
     }
 
-  	    /**
+    /**
      * CONFIRMATION COMMANDE
      */
     public function onAfterOrderConfirm(&$order, &$methods, $method_id)
     {
         foreach ($methods as $method) {
             // Vérifie que c'est bien notre méthode de paiement
-            if ($method->payment_id != $method_id) {  continue; }
+            if ($method->payment_id != $method_id) {
+                continue;
+            }
             $app = Factory::getApplication();
-            
+
             // Partenaire sélectionné
             $partner = $order->payment_params->encaisse_partner ?? '';
-            
+
             // URL de succès native et officielle d'HikaShop
             $success_url = Uri::root()
-                . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end'
-                . '&order_id=' . (int) $order->order_id;
-
+                . 'index.php?option=com_ajax'
+                . '&plugin=encaisse'
+                . '&group=hikashoppayment'
+                . '&method=clearCart'
+                . '&format=raw'
+                . '&order_id=' . (int) $order->order_id
+                . '&attempt=1';
             $failure_url = Uri::root()
                 . 'index.php?option=com_hikashop&ctrl=checkout&task=step'
                 . '&step=backward'
@@ -260,7 +259,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
             /*
              * URL de notification HikaShop (Webhook)
              */
-			//exemple : https:// great-kirch.165-22-182-189.plesk.page/index.php?																	option=com_hikashop&ctrl=checkout&task=notify&notif_payment=encaisse&tmpl=component
+            //exemple : https:// great-kirch.165-22-182-189.plesk.page/index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=encaisse&tmpl=component
             $notify_url = Uri::root()
                 . 'index.php?option=com_hikashop'
                 . '&ctrl=checkout'
@@ -281,7 +280,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                     }
                 }
             }
-            
+
             // Montant
             $amount = number_format((float) $order->order_full_price, 2, '.', '');
 
@@ -313,7 +312,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                 "Notify URL : " . $notify_url . PHP_EOL,
                 FILE_APPEND
             );
-            
+
             $client_id = $params->get('client_id');
             $client_secret = $params->get('client_secret');
             $auth = $this->getEncaisseToken($client_id, $client_secret);
@@ -324,14 +323,13 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
             }
 
             $dataApi = [
-                'operation'            => 'payment',
-                'currency'             => $currencyCode,
-                'amount'               => $amount,
-                'customer_ref'         => $phone,
-                'payment_option'       => $partner,
+                'operation' => 'payment',
+                'currency' => $currencyCode,
+                'amount' => $amount,
+                'customer_ref' => $phone,
+                'payment_option' => $partner,
                 'success_redirect_url' => $success_url,
                 'failure_redirect_url' => $failure_url,
-                'callback_url'         => $notify_url,
             ];
 
             $ch = curl_init($this->baseUrl . '/api/transactions');
@@ -346,7 +344,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                 ],
                 CURLOPT_TIMEOUT => 30
             ]);
-            
+
             $response = curl_exec($ch);
             if ($response === false) {
                 $error = curl_error($ch);
@@ -357,7 +355,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
             }
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
-            
+
             file_put_contents(
                 $logFile,
                 "HTTP CODE : " . $httpCode . PHP_EOL .
@@ -365,7 +363,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                 "==============================" . PHP_EOL,
                 FILE_APPEND
             );
-            
+
             $result = json_decode($response, true);
 
             /*
@@ -378,9 +376,11 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                 if (is_string($paymentParams)) {
                     $paymentParams = json_decode($paymentParams) ?: new stdClass();
                 }
-                if (!is_object($paymentParams)) { $paymentParams = new stdClass(); }
+                if (!is_object($paymentParams)) {
+                    $paymentParams = new stdClass();
+                }
                 $paymentParams->encaisse_transaction_id = $transactionId;
-                
+
                 $query = $db->getQuery(true)
                     ->update($db->quoteName('#__hikashop_order'))
                     ->set(
@@ -402,7 +402,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                     FILE_APPEND
                 );
             }
-            
+
             /*
              * URL de paiement
              */
@@ -410,7 +410,7 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
                 $app->redirect($result['payment_url']);
                 return true;
             }
-            
+
             /*
              * Pas d'URL de paiement
              */
@@ -419,383 +419,436 @@ class plgHikashoppaymentEncaisse extends hikashopPaymentPlugin
         }
         return true;
     }
-    
-    /**
-     * Événement Joomla exécuté après le routage de l'URL.
-     * À ce stade, Joomla a déjà analysé les paramètres de la requête.
-     */
-       public function onAfterRoute()
-		{
-			$app = Factory::getApplication();
-			if ($app->isClient('administrator')) {
-				return;
-			}
-			$input = $app->input;
-			$task = $input->getCmd('task');
 
-			// 1. ROUTAGE DU CALLBACK (WEBHOOK SERVEUR)
-			if ($task === 'encaisse_callback') {
-				$statuses = [];
-				$this->onPaymentNotification($statuses);
-				exit;
-			}
-
-			// 2. INTERCEPTION DE LA PAGE DE SUCCÈS NATIVE
-			if ($task === 'after_end') {
-				$orderId = $input->getInt('order_id', 0);
-
-				if ($orderId > 0) {
-					$db = Factory::getContainer()->get('DatabaseDriver');
-					$session = Factory::getSession();
-
-					// Récupération de la commande
-					$query = $db->getQuery(true)
-						->select($db->quoteName(['order_status', 'order_session_id']))
-						->from($db->quoteName('#__hikashop_order'))
-						->where($db->quoteName('order_id') . ' = ' . (int) $orderId);
-					$db->setQuery($query);
-					$orderData = $db->loadObject();
-
-					if ($orderData) {
-						// FORCE LA SYNCHRONISATION DE LA SESSION
-						if ($orderData->order_session_id !== $session->getId()) {
-							$queryUpdate = $db->getQuery(true)
-								->update($db->quoteName('#__hikashop_order'))
-								->set($db->quoteName('order_session_id') . ' = ' . $db->quote($session->getId()))
-								->where($db->quoteName('order_id') . ' = ' . (int) $orderId);
-							$db->setQuery($queryUpdate);
-							$db->execute();
-						}
-
-						// REDIRECTION EXPLICITE VERS LA VUE DE LA COMMANDE
-						// On redirige proprement le navigateur vers l'affichage de la commande
-						// Cela force HikaShop à réévaluer les droits avec la session synchronisée
-						$orderUrl = Uri::root() . 'index.php?option=com_hikashop&ctrl=order&task=show&order_id=' . $orderId;
-						$app->redirect($orderUrl);
-						return;
-					}
-				}
-			}
-
-			// 3. ROUTAGE DE L'ÉCRAN D'ÉCHEC CLIENT
-			if ($task === 'encaisse_error') {
-				$this->renderPage(false);
-				exit;
-			}
-
-			// 4. SAUVEGARDE DU CHOIX DE PARTENAIRE VIA AJAX
-			$method = $input->getCmd('method');
-			if ($method === 'saveChoice') {
-				$value = $input->getString('value');
-				$session = Factory::getSession();
-				$session->set('encaisse_partner', $value);
-				echo "OK";
-				$app->close();
-			}
-		}
-
-	public function onAfterInitialise()
-	{
-	
-	}
-
- 	/** Hook déclenché par la notification de paiement (IPN / callback) */
-	public function onPaymentNotification(&$statuses)
-	{
-		$app = Factory::getApplication();
-		/* Fichier de log Plesk */
-		$logFile = dirname(JPATH_ROOT). '/logs/encaisse_callback.log';
-		/* Récupération de la requête */
-		$rawBody = file_get_contents('php://input');
-		$postData = $app->input->post->getArray();
-		$getData = $app->input->getArray();
-		$jsonData = json_decode($rawBody,true);
-		
-		/* LOG COMPLET DU CALLBACK */
-		$logData = [
-			'date'       => date('Y-m-d H:i:s'),
-			'method'     => $_SERVER['REQUEST_METHOD'] ?? '',
-			'raw_body'   => $rawBody,
-			'json_data'  => $jsonData,
-			'post_data'  => $postData,
-			'get_data'   => $getData,
-		];
-		file_put_contents(
-			$logFile,
-			"\n" .
-			"========================================" . PHP_EOL .
-			"CALLBACK ENCAISSE RECU" . PHP_EOL .
-			print_r($logData, true) .
-			"========================================" . PHP_EOL,
-			FILE_APPEND
-		);
-
-		/* Déterminer les données reçues */
-		$data = [];
-		if (is_array($jsonData)) {
-			$data = $jsonData;
-		} elseif (!empty($postData)) {
-			$data = $postData;
-		} elseif (!empty($getData)) {
-			$data = $getData;
-		}
-
-		/* Récupérer le transaction_id envoyé par Encaisse */
-		$transactionId = '';
-		if (!empty($data['transaction_id'])) {
-			$transactionId = trim($data['transaction_id']);
-		}
-
-		/* Statut reçu via le Webhook originel */
-		$status = '';
-		if (!empty($data['status'])) {
-			$status = strtolower(trim($data['status']));
-		}
-
-		file_put_contents(
-			$logFile,
-			"TRANSACTION ID : " . $transactionId . PHP_EOL .
-			"STATUS WEBHOOK : " . $status . PHP_EOL,
-			FILE_APPEND
-		);
-
-		/* ==========================================================
-		 * 1. DOUBLE VÉRIFICATION PAR API SORTANTE (GET URL)
-		 * ========================================================== */
-		if (empty($transactionId)) {
-			file_put_contents($logFile, "ERREUR : Transaction ID vide." . PHP_EOL, FILE_APPEND);
-			http_response_code(400);
-			echo 'Invalid Transaction ID';
-			$app->close();
-			return;
-		}
-
-		// Récupération des paramètres de configuration du plugin HikaShop
-		$plugin = PluginHelper::getPlugin('hikashoppayment', 'encaisse');
-		$params = new Registry($plugin->params);
-		$client_id = $params->get('client_id');
-		$client_secret = $params->get('client_secret');
-
-		// 1.1 Récupération du Token dynamique via votre méthode
-		$auth = $this->getEncaisseToken($client_id, $client_secret);
-		$token = $auth['connect_token'] ?? '';
-
-		if (empty($token)) {
-			file_put_contents($logFile, "ERREUR : Impossible de récupérer le token Encaisse (Token vide)." . PHP_EOL, 							FILE_APPEND);
-			http_response_code(401);
-			echo 'API Authentication failed';
-			$app->close();
-			return;
-		}
-
-		// Nettoyage au cas où votre méthode ajoute ou oublie le mot-clé Bearer
-		$cleanToken = str_replace('Bearer ', '', $token);
-
-		// 1.2 Requête cURL GET vers l'API d'Encaisse
-		// Utilise la propriété de classe $this->baseUrl configurée dans votre plugin
-		$apiUrl = rtrim($this->baseUrl, '/') . '/api/transactions/' . urlencode($transactionId);
-		
-		$ch = curl_init($apiUrl);
-		curl_setopt_array($ch, [
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_CUSTOMREQUEST  => 'GET',
-			CURLOPT_SSL_VERIFYPEER => false,
-			CURLOPT_SSL_VERIFYHOST => false,
-			CURLOPT_TIMEOUT        => 15,
-			CURLOPT_HTTPHEADER     => [
-				'Content-Type: application/json',
-				'Authorization: Bearer ' . trim($cleanToken)
-			]
-		]);
-		
-		$response = curl_exec($ch);
-		$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		curl_close($ch);
-
-		file_put_contents(
-			$logFile,
-			"VERIFICATION API HTTP CODE : " . $httpCode . PHP_EOL .
-			"VERIFICATION API RESPONSE : " . $response . PHP_EOL,
-			FILE_APPEND
-		);
-
-		if ($httpCode !== 200 || empty($response)) {
-			file_put_contents($logFile, "RÉSULTAT SÉCURITÉ : ÉCHEC - Impossible de joindre l'API distante." . PHP_EOL, 							FILE_APPEND);
-			http_response_code(502);
-			echo 'API check failed';
-			$app->close();
-			return;
-		}
-
-		$apiData = json_decode($response, true);
-
-		// Extraction intelligente du statut (Format racine ou enveloppé)
-		$rawApiStatus = '';
-		if (isset($apiData['status'])) {
-			$rawApiStatus = $apiData['status'];
-		} elseif (isset($apiData['data']['status'])) {
-			$rawApiStatus = $apiData['data']['status'];
-		} elseif (isset($apiData['transaction']['status'])) {
-			$rawApiStatus = $apiData['transaction']['status'];
-		}
-
-		$apiStatus = strtoupper(trim(preg_replace('/\s+/', '', $rawApiStatus)));
-		file_put_contents($logFile, "STATUS API EXTRACTED : " . $apiStatus . PHP_EOL, FILE_APPEND);
-
-		// BLOCAGE STRICT : L'API doit impérativement certifier le statut PAID ou SUCCESS
-		if ($apiStatus !== 'PAID' && $apiStatus !== 'SUCCESS') {
-			file_put_contents($logFile, "RÉSULTAT SÉCURITÉ : ÉCHEC - Statut API non valide ou impayé (" . $apiStatus . ")" . 					PHP_EOL, FILE_APPEND);
-			http_response_code(400);
-			echo 'Transaction not paid on API';
-			$app->close();
-			return;
-		}
-
-		/* ==========================================================
-		 * 2. PROCESSUS STANDARD HIKASHOP
-		 * ========================================================== */
-
-		/* Filtrage additionnel des statuts temporaires du Webhook */
-		if ($status === 'new' || $status === 'pending') {
-			file_put_contents($logFile, "RÉSULTAT : IGNORÉ - Statut temporaire : " . $status . PHP_EOL, FILE_APPEND);
-			http_response_code(200);
-			echo 'Temporary status ignored';
-			$app->close();
-			return;
-		}
-
-		/* Rechercher la commande HikaShop grâce au transaction_id Encaisse */
-		$order_id = 0;
-		if (!empty($transactionId)) {
-			$db = Factory::getContainer()->get('DatabaseDriver');
-			$query = $db->getQuery(true)->select(
-					$db->quoteName('order_id')
-				)
-				->from(
-					$db->quoteName('#__hikashop_order')
-				)
-				->where(
-					$db->quoteName('order_payment_params')
-					. ' LIKE '
-					. $db->quote('%' . $db->escape($transactionId) . '%')
-				);
-
-			$db->setQuery($query);
-			$order_id = (int) $db->loadResult();
-		}
-
-		file_put_contents($logFile, "ORDER ID TROUVE : " . $order_id . PHP_EOL, FILE_APPEND);
-
-		/* Si aucune commande n'est trouvée */
-		if (!$order_id) {
-			file_put_contents($logFile, "ERREUR : COMMANDE INTROUVABLE POUR LA TRANSACTION : " . $transactionId . PHP_EOL, 						FILE_APPEND);
-			http_response_code(200);
-			echo 'OK';
-			$app->close();
-			return;
-		}
-
-		/* Enregistrement de la commande */
-		file_put_contents($logFile, "TENTATIVE CONFIRMATION HIKASHOP : " . $order_id . PHP_EOL, FILE_APPEND);
-
-		try {
-			//$this->modifyOrder($order_id, 'confirmed', 'Encaisse transaction double-checked ' . $transactionId);
-			// Appel natif incluant l'activation explicite de la notification par e-mail
-			$this->modifyOrder($order_id, 'confirmed', true, true);
-
-			$db = Factory::getContainer()->get('DatabaseDriver');
-			$checkQuery = $db->getQuery(true)
-				->select($db->quoteName('order_status'))
-				->from($db->quoteName('#__hikashop_order'))
-				->where($db->quoteName('order_id') . ' = ' . (int) $order_id);
-			$db->setQuery($checkQuery);
-			$updatedStatus = $db->loadResult();
-
-			file_put_contents(
-				$logFile,
-				"COMMANDE CONFIRMEE : " . $order_id
-				. " STATUT DB : " . var_export($updatedStatus, true)
-				. PHP_EOL,
-				FILE_APPEND
-			);
-		} catch (\Throwable $exception) {
-			file_put_contents(
-				$logFile,
-				"ERREUR CONFIRMATION HIKASHOP : "
-				. $exception->getMessage() . PHP_EOL
-				. $exception->getTraceAsString() . PHP_EOL,
-				FILE_APPEND
-			);
-		}
-
-		/* Réponse finale à Encaisse */
-		http_response_code(200);
-		echo 'OK';
-		$app->close();
-	}
-
-    public function testRedirectUrls()
+    /** Hook déclenché par la notification de paiement (IPN / callback) */
+    public function onPaymentNotification(&$statuses)
     {
-        $success_url = Uri::root() . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end';
-        $failure_url = Uri::root() . 'index.php?option=com_hikashop&ctrl=checkout&task=encaisse_error';
-        echo '<h2>TEST REDIRECTION URLS</h2>';
-        echo '<p>SUCCESS: ' . $success_url . '</p>';
-        echo '<p>ERROR: ' . $failure_url . '</p>';
-        Factory::getApplication()->close();
+        $app = Factory::getApplication();
+        /* Fichier de log Plesk */
+        $logFile = dirname(JPATH_ROOT) . '/logs/encaisse_callback.log';
+        /* Récupération de la requête */
+        $rawBody = file_get_contents('php://input');
+        $postData = $app->input->post->getArray();
+        $getData = $app->input->getArray();
+        $jsonData = json_decode($rawBody, true);
+
+        /* LOG COMPLET DU CALLBACK */
+        $logData = [
+            'date' => date('Y-m-d H:i:s'),
+            'method' => $_SERVER['REQUEST_METHOD'] ?? '',
+            'raw_body' => $rawBody,
+            'json_data' => $jsonData,
+            'post_data' => $postData,
+            'get_data' => $getData,
+        ];
+        file_put_contents(
+            $logFile,
+            "\n" .
+            "========================================" . PHP_EOL .
+            "CALLBACK ENCAISSE RECU" . PHP_EOL .
+            print_r($logData, true) .
+            "========================================" . PHP_EOL,
+            FILE_APPEND
+        );
+
+        /* Déterminer les données reçues */
+        $data = [];
+        if (is_array($jsonData)) {
+            $data = $jsonData;
+        } elseif (!empty($postData)) {
+            $data = $postData;
+        } elseif (!empty($getData)) {
+            $data = $getData;
+        }
+
+        /* Récupérer le transaction_id envoyé par Encaisse */
+        $transactionId = '';
+        if (!empty($data['transaction_id'])) {
+            $transactionId = trim($data['transaction_id']);
+        }
+
+        /* Statut reçu via le Webhook originel */
+        $status = '';
+        if (!empty($data['status'])) {
+            $status = strtolower(trim($data['status']));
+        }
+
+        file_put_contents(
+            $logFile,
+            "TRANSACTION ID : " . $transactionId . PHP_EOL .
+            "STATUS WEBHOOK : " . $status . PHP_EOL,
+            FILE_APPEND
+        );
+
+        /* ==========================================================
+         * 1. DOUBLE VÉRIFICATION PAR API SORTANTE (GET URL)
+         * ========================================================== */
+        if (empty($transactionId)) {
+            file_put_contents($logFile, "ERREUR : Transaction ID vide." . PHP_EOL, FILE_APPEND);
+            http_response_code(400);
+            echo 'Invalid Transaction ID';
+            $app->close();
+            return;
+        }
+
+        // Récupération des paramètres de configuration du plugin HikaShop
+        $plugin = PluginHelper::getPlugin('hikashoppayment', 'encaisse');
+        $params = new Registry($plugin->params);
+        $client_id = $params->get('client_id');
+        $client_secret = $params->get('client_secret');
+
+        // 1.1 Récupération du Token dynamique via votre méthode
+        $auth = $this->getEncaisseToken($client_id, $client_secret);
+        $token = $auth['connect_token'] ?? '';
+
+        if (empty($token)) {
+            file_put_contents($logFile, "ERREUR : Impossible de récupérer le token Encaisse (Token vide)." . PHP_EOL, FILE_APPEND);
+            http_response_code(401);
+            echo 'API Authentication failed';
+            $app->close();
+            return;
+        }
+
+        // Nettoyage au cas où votre méthode ajoute ou oublie le mot-clé Bearer
+        $cleanToken = str_replace('Bearer ', '', $token);
+
+        // 1.2 Requête cURL GET vers l'API d'Encaisse
+        // Utilise la propriété de classe $this->baseUrl configurée dans votre plugin
+        $apiUrl = rtrim($this->baseUrl, '/') . '/api/transactions/' . urlencode($transactionId);
+
+        $ch = curl_init($apiUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . trim($cleanToken)
+            ]
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        file_put_contents(
+            $logFile,
+            "VERIFICATION API HTTP CODE : " . $httpCode . PHP_EOL .
+            "VERIFICATION API RESPONSE : " . $response . PHP_EOL,
+            FILE_APPEND
+        );
+
+        if ($httpCode !== 200 || empty($response)) {
+            file_put_contents($logFile, "RÉSULTAT SÉCURITÉ : ÉCHEC - Impossible de joindre l'API distante." . PHP_EOL, FILE_APPEND);
+            http_response_code(502);
+            echo 'API check failed';
+            $app->close();
+            return;
+        }
+
+        $apiData = json_decode($response, true);
+
+        // Extraction intelligente du statut (Format racine ou enveloppé)
+        $rawApiStatus = '';
+        if (isset($apiData['status'])) {
+            $rawApiStatus = $apiData['status'];
+        } elseif (isset($apiData['data']['status'])) {
+            $rawApiStatus = $apiData['data']['status'];
+        } elseif (isset($apiData['transaction']['status'])) {
+            $rawApiStatus = $apiData['transaction']['status'];
+        }
+
+        $apiStatus = strtoupper(trim(preg_replace('/\s+/', '', $rawApiStatus)));
+        file_put_contents($logFile, "STATUS API EXTRACTED : " . $apiStatus . PHP_EOL, FILE_APPEND);
+
+        // BLOCAGE STRICT : L'API doit impérativement certifier le statut PAID ou SUCCESS
+        if ($apiStatus !== 'PAID' && $apiStatus !== 'SUCCESS') {
+            file_put_contents($logFile, "RÉSULTAT SÉCURITÉ : ÉCHEC - Statut API non valide ou impayé (" . $apiStatus . ")" . PHP_EOL, FILE_APPEND);
+            http_response_code(400);
+            echo 'Transaction not paid on API';
+            $app->close();
+            return;
+        }
+
+        /* ==========================================================
+         * 2. PROCESSUS STANDARD HIKASHOP
+         * ========================================================== */
+
+        /* Filtrage additionnel des statuts temporaires du Webhook */
+        if ($status === 'new' || $status === 'pending') {
+            file_put_contents($logFile, "RÉSULTAT : IGNORÉ - Statut temporaire : " . $status . PHP_EOL, FILE_APPEND);
+            http_response_code(200);
+            echo 'Temporary status ignored';
+            $app->close();
+            return;
+        }
+
+        /* Rechercher la commande HikaShop grâce au transaction_id Encaisse */
+        $order_id = 0;
+        if (!empty($transactionId)) {
+            $db = Factory::getContainer()->get('DatabaseDriver');
+            $query = $db->getQuery(true)->select(
+                $db->quoteName('order_id')
+            )
+                ->from(
+                    $db->quoteName('#__hikashop_order')
+                )
+                ->where(
+                    $db->quoteName('order_payment_params')
+                    . ' LIKE '
+                    . $db->quote('%' . $db->escape($transactionId) . '%')
+                );
+
+            $db->setQuery($query);
+            $order_id = (int) $db->loadResult();
+        }
+
+        file_put_contents($logFile, "ORDER ID TROUVE : " . $order_id . PHP_EOL, FILE_APPEND);
+
+        /* Si aucune commande n'est trouvée */
+        if (!$order_id) {
+            file_put_contents($logFile, "ERREUR : COMMANDE INTROUVABLE POUR LA TRANSACTION : " . $transactionId . PHP_EOL, FILE_APPEND);
+            http_response_code(200);
+            echo 'OK';
+            $app->close();
+            return;
+        }
+
+        /* Enregistrement de la commande */
+        file_put_contents($logFile, "TENTATIVE CONFIRMATION HIKASHOP : " . $order_id . PHP_EOL, FILE_APPEND);
+
+        try {
+            //$this->modifyOrder($order_id, 'confirmed', 'Encaisse transaction double-checked ' . $transactionId);
+            // Appel natif incluant l'activation explicite de la notification par e-mail
+            $history = new stdClass();
+
+            $history->notified = 1;
+            $history->data =
+                'Paiement Encaisse confirmé. Transaction : '
+                . $transactionId;
+
+            $this->modifyOrder(
+                $order_id,
+                'confirmed',
+                $history,
+                true
+            );
+            $db = Factory::getContainer()->get('DatabaseDriver');
+            $checkQuery = $db->getQuery(true)
+                ->select($db->quoteName('order_status'))
+                ->from($db->quoteName('#__hikashop_order'))
+                ->where($db->quoteName('order_id') . ' = ' . (int) $order_id);
+            $db->setQuery($checkQuery);
+            $updatedStatus = $db->loadResult();
+
+            file_put_contents(
+                $logFile,
+                "COMMANDE CONFIRMEE : " . $order_id
+                . " STATUT DB : " . var_export($updatedStatus, true)
+                . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $exception) {
+            file_put_contents(
+                $logFile,
+                "ERREUR CONFIRMATION HIKASHOP : "
+                . $exception->getMessage() . PHP_EOL
+                . $exception->getTraceAsString() . PHP_EOL,
+                FILE_APPEND
+            );
+        }
+
+        /* Réponse finale à Encaisse */
+        http_response_code(200);
+        echo 'OK';
+        $app->close();
     }
 
-        public function onAjaxEncaisse()
-    {
-        $input = Factory::getApplication()->input;
-        $value = $input->getString('value');
-        $session = Factory::getSession();
-        $session->set('encaisse_partner', $value);
-        echo 'SAVE=' . $value;
-        Factory::getApplication()->close();
-    }
-   
-        /** 
-     * Gestion exclusive de la boucle d'attente client (Polling)
-     */
-    public function encaisse_success()
+    public function onAjaxEncaisse()
     {
         $app = Factory::getApplication();
         $input = $app->input;
-        
+
+        $method = $input->getCmd('method');
+
+        /*
+         * Retour après paiement Encaisse
+         */
+        if ($method === 'clearCart') {
+            $this->onAjaxClearCart();
+            return;
+        }
+
+        /*
+         * Sauvegarde du partenaire sélectionné
+         */
+        if ($method === 'saveChoice') {
+            $value = $input->getString('value');
+
+            if (!empty($value)) {
+                Factory::getSession()->set(
+                    'encaisse_partner',
+                    $value
+                );
+            }
+
+            echo 'OK';
+            $app->close();
+        }
+
+        echo 'Invalid AJAX method';
+        $app->close();
+    }
+
+    private function clearCurrentHikashopCart()
+    {
+        if (!function_exists('hikashop_get')) {
+            $helper = JPATH_ADMINISTRATOR  . '/components/com_hikashop/helpers/helper.php';
+
+            if (is_file($helper)) {
+                require_once $helper;
+            }
+        }
+
+        if (!function_exists('hikashop_get')) {
+            return false;
+        }
+
+        $cartClass = hikashop_get('class.cart');
+
+        if (!$cartClass) {
+            return false;
+        }
+
+        $cart = $cartClass->loadFullCart(true);
+
+        if (!is_object($cart) || empty($cart->cart_id)) {
+            return true;
+        }
+
+        $elementsToDelete = [
+            (int) $cart->cart_id
+        ];
+
+        $result = $cartClass->delete($elementsToDelete);
+
+        return (bool) $result;
+    }
+
+    public function onAjaxClearCart()
+    {
+        $app = Factory::getApplication();
+        $input = $app->input;
+
         $orderId = $input->getInt('order_id', 0);
-        $attempts = $input->getInt('attempt', 1);
+        $attempt = $input->getInt('attempt', 1);
 
         if ($orderId <= 0) {
-            $app->redirect(Route::_('index.php'));
-            return;
+            http_response_code(400);
+            echo 'Invalid order ID';
+            $app->close();
         }
 
         $db = Factory::getContainer()->get('DatabaseDriver');
+
         $query = $db->getQuery(true)
             ->select($db->quoteName('order_status'))
             ->from($db->quoteName('#__hikashop_order'))
-            ->where($db->quoteName('order_id') . ' = ' . (int) $orderId);
+            ->where(
+                $db->quoteName('order_id')
+                . ' = '
+                . (int) $orderId
+            );
+
         $db->setQuery($query);
-        $orderStatus = $db->loadResult();
+        $orderStatus = strtolower(trim((string) $db->loadResult()));
 
-        // Si le statut est validé pendant l'attente, on recharge pour afficher le succès officiel
-        if ($orderStatus === 'confirmed' || $orderStatus === 'confirmed_payment') {
-            $finalUrl = Uri::root() . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $orderId;
+        /*
+         * On vide le panier uniquement après confirmation réelle
+         */
+        if (
+            $orderStatus === 'confirmed'
+            || $orderStatus === 'confirmed_payment'
+        ) {
+            $cleared = $this->clearCurrentHikashopCart();
+
+            if (!$cleared) {
+                Factory::getApplication()->enqueueMessage(
+                    'La commande est confirmée, mais le panier n’a pas pu être vidé.',
+                    'warning'
+                );
+            }
+
+            $finalUrl = Uri::root()
+                . 'index.php?option=com_hikashop'
+                . '&ctrl=order'
+                . '&task=show'
+                . '&cid[]=' . (int) $orderId;
+
             $app->redirect($finalUrl);
-            return;
+            $app->close();
         }
 
-        if ($attempts >= 6) {
-            $app->enqueueMessage('Votre paiement est en cours de traitement par l\'opérateur. Un e-mail de confirmation vous sera 					envoyé dès validation finale.', 'warning');
-            $app->redirect(Route::_('index.php?option=com_hikashop&ctrl=order'));
-            return;
+        /*
+         * Le webhook n’a peut-être pas encore confirmé la commande.
+         * On attend au maximum 10 tentatives.
+         */
+        if ($attempt >= 10) {
+            $finalUrl = Uri::root()
+                . 'index.php?option=com_hikashop'
+                . '&ctrl=checkout'
+                . '&task=after_end'
+                . '&order_id=' . (int) $orderId;
+
+            $app->enqueueMessage(
+                'Le paiement est encore en cours de confirmation.',
+                'warning'
+            );
+
+            $app->redirect($finalUrl);
+            $app->close();
         }
 
-        $nextAttempt = $attempts + 1;
-        $currentUrl = Uri::root() . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $orderId . 				'&attempt=' . $nextAttempt;
+        $nextAttempt = $attempt + 1;
 
-        header("Refresh: 3; URL=" . $currentUrl);
-        $this->displayWaitingScreen($attempts);
+        $retryUrl = Uri::root()
+            . 'index.php?option=com_ajax'
+            . '&plugin=encaisse'
+            . '&group=hikashoppayment'
+            . '&method=clearCart'
+            . '&format=raw'
+            . '&order_id=' . (int) $orderId
+            . '&attempt=' . (int) $nextAttempt;
+
+        $safeRetryUrl = htmlspecialchars(
+            $retryUrl,
+            ENT_QUOTES,
+            'UTF-8'
+        );
+
+        echo '
+		<!DOCTYPE html>
+		<html lang="fr">
+		<head>
+			<meta charset="utf-8">
+			<title>Confirmation du paiement</title>
+			<meta http-equiv="refresh" content="3;url=' . $safeRetryUrl . '">
+		</head>
+		<body style="
+			font-family: Arial, sans-serif;
+			text-align: center;
+			padding-top: 80px;
+		">
+			<h2>Confirmation du paiement en cours</h2>
+			<p>
+				Nous vérifions encore le statut de votre paiement.
+			</p>
+			<p>
+				Tentative ' . (int) $attempt . ' sur 10
+			</p>
+		</body>
+		</html>';
+
         $app->close();
     }
 
