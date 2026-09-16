@@ -35,11 +35,7 @@ après vérification du paiement auprès de l'API Encaisse.
 
 Le dépôt GitHub peut être organisé comme suit :
 
-```text
-encaisse-hikashop/
-├── README.md
-├── LICENSE
-└── encaisse/
+ encaisse/
     ├── encaisse.php
     ├── encaisse.xml
     ├── assets/
@@ -50,7 +46,6 @@ encaisse-hikashop/
     └── language/
         ├── en-GB/
         └── fr-FR/
-```
 
 Le fichier `README.md` doit rester à la racine du dépôt GitHub. Il n'est pas
 nécessaire de l'installer dans Joomla avec le plugin.
@@ -70,14 +65,12 @@ nécessaire de l'installer dans Joomla avec le plugin.
 
 L'archive destinée à Joomla doit contenir `encaisse.xml` à sa racine :
 
-```text
-plg_hikashoppayment_encaisse.zip
+encaisse.zip
 ├── encaisse.xml
 ├── encaisse.php
 ├── assets/
 ├── helpers/
 └── language/
-```
 
 Si le dépôt utilise le dossier `encaisse/`, créer l'archive depuis ce dossier
 afin de ne pas ajouter un niveau de dossier inutile :
@@ -97,11 +90,7 @@ Dans la configuration de la méthode de paiement Encaisse, renseigner :
 | `Client Secret` | Secret de l'application Encaisse |
 | `Company ID` | Identifiant de l'entreprise ou du compte marchand |
 
-Le plugin doit utiliser l'API de production :
-
-```text
-https://api.encaisse.net
-```
+Le plugin doit utiliser l'API de production : https://api.sandbox.encaisse.net
 
 Les identifiants Encaisse ne doivent jamais être ajoutés dans GitHub, dans le
 README ou dans un fichier de configuration versionné.
@@ -111,9 +100,7 @@ README ou dans un fichier de configuration versionné.
 Dans la plateforme Encaisse, configurer l'URL de callback de production
 suivante, en remplaçant le domaine par celui du site Joomla :
 
-```text
 https://www.exemple.com/index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=encaisse
-```
 
 Le webhook est reçu par le plugin HikaShop, puis le plugin :
 
@@ -130,7 +117,6 @@ notifications de paiement fonctionnent correctement.
 
 ## Flux de paiement
 
-```text
 Client
   │
   ├── Sélectionne Encaisse et un partenaire
@@ -146,7 +132,6 @@ Client
   ├── La commande HikaShop passe à confirmed
   │
   └── Le panier est vidé et la commande est affichée
-```
 
 ## Développement et tests
 
@@ -163,23 +148,10 @@ Avant toute mise en production, tester au minimum :
 - l'envoi de l'e-mail HikaShop ;
 - le comportement lorsqu'un paiement échoue ou reste en attente.
 
-Ne pas utiliser de certificats SSL désactivés en production. Les options
-suivantes ne doivent pas être présentes dans la version publiée :
-
-```php
-CURLOPT_SSL_VERIFYPEER => false,
-CURLOPT_SSL_VERIFYHOST => false,
-```
-
 ## Journaux
 
 Le plugin peut écrire des informations de diagnostic dans les journaux Joomla.
 Ces journaux peuvent contenir des données de transaction ou de callback.
-
-- Ne jamais publier les journaux sur GitHub.
-- Ne jamais publier de `Client Secret`.
-- Protéger l'accès au dossier de logs.
-- Désactiver ou réduire les logs de diagnostic après la mise en production.
 
 ## Compatibilité
 
@@ -203,8 +175,5 @@ Pull Request.
 
 À compléter selon la licence choisie par l'auteur du plugin.
 
-Exemple :
+Exemple : Copyright (c) 2026 TelEtCom
 
-```text
-Copyright (c) 2026 TelEtCom
-```
